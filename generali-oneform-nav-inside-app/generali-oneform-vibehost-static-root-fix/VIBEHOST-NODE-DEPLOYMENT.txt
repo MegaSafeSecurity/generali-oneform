@@ -1,0 +1,31 @@
+GENERALI ONEFORM — FULL NODE/API PACKAGE
+
+This is the full source project with server.js, package.json, public/, src/, Supabase migrations,
+original PDF templates and checks. It is not deployable as a static drag-and-drop ZIP for API use.
+
+VibeHost STATIC dashboard upload: static-only; cannot run Node server.js/API.
+Full-stack deploy must use VibeHost CLI and a Node runtime (if enabled for this account).
+
+Windows PowerShell (run from this extracted project folder):
+1) Install Node.js 20+ (already used to run the package checks).
+2) Install VibeHost CLI from the official VibeHost docs and restart PowerShell.
+3) Authenticate: vibehost login
+4) Inspect the app/runtime options in CLI and confirm Node runtime is available for this account.
+5) Deploy the project root using the supported Node runtime: vibehost deploy . --app generali-oneform-tera-kinabalu --runtime node --build server
+   (If this account does not allow the Node runtime, deployment is blocked; static ZIP cannot substitute.)
+6) Verify the deployed app's URL and deployment status; do not call it production-ready until secrets,
+   persistent Supabase, OAuth, and business workflows are configured and tested.
+
+PACKAGE VERIFICATION: npm run verify passed in the local source package (26 API smoke checks, syntax,
+security and RLS policy checks). These are source-level tests only. The project README still marks
+features such as real auth, persistent production data, PDF overlay and official insurer submission
+as incomplete/demo foundation. No deployment was performed from this chat.
+
+Never upload a real .env file. Keep credentials in the VibeHost server-side secrets.
+
+
+QUICK DEPLOY SCRIPT (Windows): extract this ZIP, open PowerShell in the extracted root, then run:
+  Set-ExecutionPolicy -Scope Process Bypass
+  .\DEPLOY_VIBEHOST_NODE.ps1
+
+The script authenticates if needed and deploys the package to the existing app slug with Node runtime. VibeHost Node runtime may be private-beta/limited by account. It does not configure production OAuth/Supabase/Gmail secrets or make incomplete business flows production-ready.
