@@ -1,25 +1,24 @@
-# Render Blueprint (Static Site): New + > Blueprint > pilih repo ini. Tiada pelayan backend diperlukan.
+# Render Blueprint - Static Site. Render > New + > Blueprint > pilih repo ini.
 services:
   - type: web
     name: generali-oneform
     runtime: static
-    buildCommand: npm ci && npm run build
+    buildCommand: npm install && npm run build
     staticPublishPath: dist
     pullRequestPreviewsEnabled: false
+    envVars:
+      - key: SUPABASE_URL
+        sync: false          # diisi di dashboard Render (bukan dalam repo)
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: NODE_VERSION
+        value: 22
     routes:
-      - type: rewrite        # /apply, /agent dsb. tidak 404 bila di-refresh
+      - type: rewrite
         source: /*
         destination: /index.html
     headers:
-      - path: /*
-        name: X-Content-Type-Options
-        value: nosniff
-      - path: /*
-        name: Referrer-Policy
-        value: no-referrer
-      - path: /*
-        name: X-Frame-Options
-        value: DENY
-      - path: /sw.js
-        name: Cache-Control
-        value: no-cache
+      - { path: /*, name: X-Content-Type-Options, value: nosniff }
+      - { path: /*, name: Referrer-Policy, value: strict-origin-when-cross-origin }
+      - { path: /*, name: X-Frame-Options, value: DENY }
+      - { path: /*, name: Permissions-Policy, value: "camera=(), microphone=(), geolocation=()" }
