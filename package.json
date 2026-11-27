@@ -1,16 +1,15 @@
 {
-  "name": "generali-oneform-agent-portal",
-  "version": "1.0.0",
+  "name": "generali-oneform",
+  "version": "2.0.0",
   "private": true,
-  "description": "Generali OneForm agent portal - aplikasi web statik (TypeScript, pdf-lib) untuk Render Static Site dan GitHub Pages",
+  "description": "Generali OneForm - portal ejen/HQ/pelanggan. Frontend statik (Render) + Supabase (Auth, Postgres, RLS).",
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && node build.mjs",
-    "preview": "npx --yes serve dist -l 3000",
-    "hash-password": "node scripts/hash-password.mjs"
+    "dev": "node build.mjs && npx --yes serve dist -l 3000",
+    "scan-secrets": "node scripts/scan-secrets.mjs"
   },
   "engines": { "node": ">=20" },
-  "dependencies": { "pdf-lib": "^1.17.1" },
-  "devDependencies": { "esbuild": "^0.25.0", "typescript": "^5.6.0" }
+  "dependencies": { "esbuild": "^0.25.0", "pdf-lib": "^1.17.1", "typescript": "^5.6.0" }
 }
