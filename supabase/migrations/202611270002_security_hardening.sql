@@ -106,7 +106,8 @@ values (
   ]
 )
 on conflict (id) do update
-set public = false, file_size_limit = 8388608;
+set public = false, file_size_limit = 8388608,
+    allowed_mime_types = excluded.allowed_mime_types;
 
 drop policy if exists "generali agent reads own files" on storage.objects;
 create policy "generali agent reads own files"
@@ -115,7 +116,7 @@ using (
   bucket_id = 'generali-private'
   and (
     public.is_hq_admin()
-    or (storage.foldername(name))[1] = auth.uid()::text
+    or ((storage.foldername(name))[1] = auth.uid()::text and exists (select 1 from public.profiles p where p.id = auth.uid() and p.is_active = true))
   )
 );
 
@@ -137,10 +138,12 @@ on storage.objects for update to authenticated
 using (
   bucket_id = 'generali-private'
   and (storage.foldername(name))[1] = auth.uid()::text
+  and exists (select 1 from public.profiles p where p.id = auth.uid() and p.is_active = true)
 )
 with check (
   bucket_id = 'generali-private'
   and (storage.foldername(name))[1] = auth.uid()::text
+  and exists (select 1 from public.profiles p where p.id = auth.uid() and p.is_active = true)
 );
 
 drop policy if exists "generali agent deletes own files" on storage.objects;
