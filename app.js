@@ -1,43 +1,218 @@
-/* Generali OneForm - safe bootstrap.
- * This ZIP did not include the original application logic. This file deliberately
- * does not simulate authentication, submission, PDF generation or email delivery.
+/* Generali OneForm — Supabase REST bootstrap.
+ * Only the public anon/publishable key belongs in config.js.
+ * Service-role keys and Google/Gmail secrets must remain in Edge Function secrets.
  */
 (() => {
   'use strict';
-  const toast = document.getElementById('toast');
-  const show = (message) => {
-    if (toast) { toast.textContent = message; toast.classList.add('show'); }
-    else console.info('[Generali OneForm]', message);
+  const $ = (id) => document.getElementById(id);
+  const toast = $('toast');
+  const msg = $('authMsg');
+  const cfg = window.GENERALI_ONEFORM_CONFIG || {};
+  const validConfig = /^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(cfg.supabaseUrl || '') &&
+    typeof cfg.supabaseAnonKey === 'string' &&
+    cfg.supabaseAnonKey.length > 20 &&
+    !/YOUR_|PLACEHOLDER/i.test(cfg.supabaseAnonKey);
+  const STORE = 'generali_oneform_session_v1';
+  let session = null;
+  let profile = null;
+  let authMode = 'login';
+
+  const notify = (text) => {
+    if (toast) { toast.textContent = text; toast.classList.add('show'); }
+    else console.info('[Generali OneForm]', text);
   };
-  const configMissing = !window.GENERALI_ONEFORM_CONFIG ||
-    !window.GENERALI_ONEFORM_CONFIG.supabaseUrl ||
-    !window.GENERALI_ONEFORM_CONFIG.supabaseAnonKey;
-  if (configMissing) {
-    const note = document.createElement('div');
-    note.setAttribute('role','status');
-    note.style.cssText = 'margin:18px auto;padding:14px 18px;max-width:960px;border:1px solid #e7b7ae;border-radius:12px;background:#fff8f6;color:#76251c;font:14px/1.5 system-ui';
-    note.innerHTML = '<strong>Mod persediaan — sambungan backend belum dikonfigurasi.</strong><br>' +
-      'Antara muka dan aset Generali dimuatkan, tetapi log masuk, penghantaran permohonan, PDF dan e-mel belum diaktifkan. ' +
-      'Rujuk README-MY.md sebelum penggunaan sebenar.';
-    document.querySelector('main')?.prepend(note);
-  }
-  document.getElementById('langBtn')?.addEventListener('click', () => {
-    show('Pilihan bahasa UI asal memerlukan fail aplikasi asal yang tiada dalam ZIP.');
-  });
-  document.getElementById('googleBtn')?.addEventListener('click', () => {
-    show('Google OAuth belum disambungkan. Lengkapkan konfigurasi Supabase dan Google OAuth dahulu.');
-  });
-  document.getElementById('loginBtn')?.addEventListener('click', () => {
-    show('Log masuk belum diaktifkan: konfigurasi backend diperlukan.');
-  });
-  document.getElementById('signupBtn')?.addEventListener('click', () => {
-    show('Pendaftaran belum diaktifkan: konfigurasi backend diperlukan.');
-  });
-  document.querySelectorAll('button').forEach((b) => {
-    if (!b.dataset.bootstrapBound && ['createLink','submitApplication','downloadPdfReview','downloadPdfDone'].includes(b.id)) {
-      b.dataset.bootstrapBound = '1';
-      b.addEventListener('click', () => show('Fungsi ini belum diaktifkan. Jangan gunakan untuk menerima permohonan sebenar.'));
+  const authMessage = (text, error = false) => {
+    if (!msg) return;
+    msg.textContent = text;
+    msg.hidden = !text;
+    msg.dataset.state = error ? 'error' : 'info';
+  };
+  const showOnly = (id) => {
+    ['authView','pendingView','dashView','custHomeView','formView','reviewView','doneView']
+      .forEach((key) => $(key)?.classList.toggle('hidden', key !== id));
+    document.body.dataset.mode = id;
+  };
+  const api = async (path, options = {}, token) => {
+    if (!validConfig) throw new Error('Konfigurasi Supabase belum lengkap. Sediakan URL projek dan public anon/publishable key dalam config.js.');
+    const response = await fetch(cfg.supabaseUrl.replace(/\/$/, '') + path, {
+      ...options,
+      headers: {
+        apikey: cfg.supabaseAnonKey,
+        Authorization: 'Bearer ' + (token || session?.access_token || cfg.supabaseAnonKey),
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(options.headers || {})
+      }
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(body.msg || body.message || body.error_description || body.error || 'Permintaan gagal (' + response.status + ')');
+      error.status = response.status;
+      throw error;
     }
+    return body;
+  };
+  const saveSession = (value) => {
+    session = value;
+    if (value) sessionStorage.setItem(STORE, JSON.stringify(value));
+    else sessionStorage.removeItem(STORE);
+  };
+  const readSession = () => {
+    try { return JSON.parse(sessionStorage.getItem(STORE) || 'null'); }
+    catch { return null; }
+  };
+  const safeText = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  })[c]);
+  const setMode = (mode) => {
+    authMode = mode;
+    $('tabLogin')?.setAttribute('aria-selected', String(mode === 'login'));
+    $('tabSignup')?.setAttribute('aria-selected', String(mode === 'signup'));
+    $('authTitle')?.replaceChildren(document.createTextNode(mode === 'login' ? 'Selamat kembali' : 'Daftar akaun ejen'));
+    $('authSubmit')?.replaceChildren(document.createTextNode(mode === 'login' ? 'Log masuk' : 'Daftar akaun'));
+    $('nameField')?.classList.toggle('hidden', mode !== 'signup');
+    $('authPass')?.setAttribute('autocomplete', mode === 'login' ? 'current-password' : 'new-password');
+    authMessage('');
+  };
+  const loadProfile = async () => {
+    const rows = await api('/rest/v1/profiles?select=id,full_name,role,is_active&id=eq.' + encodeURIComponent(session.user.id), {}, session.access_token);
+    profile = rows[0] || null;
+    if (!profile || !profile.is_active) {
+      $('pendingText').textContent = 'Akaun anda telah didaftarkan tetapi belum diaktifkan oleh pentadbir HQ. Sila hubungi HQ untuk kelulusan.';
+      showOnly('pendingView');
+      return;
+    }
+    $('dashName').textContent = (profile.full_name || session.user.email || 'Pengguna') + ' · ' + (profile.role === 'hq_admin' ? 'HQ' : 'Agent');
+    showOnly('dashView');
+    await loadApplications();
+    $('hqTabs')?.classList.toggle('hidden', profile.role !== 'hq_admin');
+  };
+  const loadApplications = async () => {
+    const rows = await api('/rest/v1/applications?select=id,reference_no,form_type,status,customer_email,created_at&order=created_at.desc&limit=50');
+    const host = $('appList');
+    if (!host) return;
+    if (!rows.length) { host.textContent = 'Belum ada permohonan.'; return; }
+    host.innerHTML = rows.map((row) =>
+      '<article class="app-row"><b>' + safeText(row.reference_no) + '</b>' +
+      '<span>' + safeText(row.form_type) + ' · ' + safeText(row.status) + '</span>' +
+      '<small>' + safeText(row.customer_email || 'Tiada emel pelanggan') + '</small></article>'
+    ).join('');
+  };
+  const login = async (email, password) => {
+    const data = await api('/auth/v1/token?grant_type=password', {
+      method: 'POST', body: JSON.stringify({ email, password })
+    }, cfg.supabaseAnonKey);
+    saveSession(data);
+    await loadProfile();
+  };
+  const signup = async (name, email, password) => {
+    const data = await api('/auth/v1/signup', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, data: { full_name: name } })
+    }, cfg.supabaseAnonKey);
+    if (data.access_token) {
+      saveSession(data);
+      await loadProfile();
+    } else {
+      authMessage('Pendaftaran diterima. Sahkan alamat e-mel melalui pautan yang dihantar, kemudian log masuk. Akaun juga memerlukan kelulusan HQ.');
+    }
+  };
+  const logout = async () => {
+    try { if (session?.access_token) await api('/auth/v1/logout', { method: 'POST' }); } catch (_) {}
+    saveSession(null); profile = null; showOnly('authView'); setMode('login');
+  };
+  const consumeOAuthCallback = () => {
+    if (!location.hash || !location.hash.includes('access_token=')) return false;
+    const p = new URLSearchParams(location.hash.slice(1));
+    const access_token = p.get('access_token');
+    if (!access_token) return false;
+    saveSession({
+      access_token, refresh_token: p.get('refresh_token'),
+      token_type: p.get('token_type') || 'bearer',
+      expires_in: Number(p.get('expires_in') || 3600),
+      user: { id: p.get('user_id') }
+    });
+    history.replaceState(null, '', location.pathname + location.search);
+    return true;
+  };
+  const restoreOAuthUser = async () => {
+    if (!session?.access_token || session.user?.email) return;
+    const user = await api('/auth/v1/user', {}, session.access_token);
+    session.user = user; saveSession(session);
+  };
+
+  $('tabLogin')?.addEventListener('click', () => setMode('login'));
+  $('tabSignup')?.addEventListener('click', () => setMode('signup'));
+  $('authForm')?.addEventListener('submit', async (event) => {
+    event.preventDefault(); authMessage('');
+    const email = $('authEmail')?.value.trim();
+    const password = $('authPass')?.value || '';
+    if (!email || password.length < 8) return authMessage('Masukkan e-mel sah dan kata laluan sekurang-kurangnya 8 aksara.', true);
+    const submit = $('authSubmit'); if (submit) submit.disabled = true;
+    try {
+      if (authMode === 'signup') {
+        const name = $('authName')?.value.trim();
+        if (!name) throw new Error('Sila masukkan nama penuh.');
+        await signup(name, email, password);
+      } else await login(email, password);
+    } catch (error) { authMessage(error.message, true); }
+    finally { if (submit) submit.disabled = false; }
   });
-  console.info('Generali OneForm bootstrap loaded. Backend is intentionally disabled until configured.');
+  $('googleBtn')?.addEventListener('click', () => {
+    if (!validConfig) return notify('Konfigurasi Supabase belum lengkap.');
+    const redirect = cfg.appBaseUrl || location.origin + location.pathname;
+    location.href = cfg.supabaseUrl.replace(/\/$/, '') + '/auth/v1/authorize?provider=google&redirect_to=' + encodeURIComponent(redirect);
+  });
+  $('forgotBtn')?.addEventListener('click', async () => {
+    const email = $('authEmail')?.value.trim();
+    if (!email) return authMessage('Masukkan e-mel anda dahulu.');
+    try {
+      await api('/auth/v1/recover', { method:'POST', body:JSON.stringify({ email, gotrue_meta_security:{ captcha_token:null } }) }, cfg.supabaseAnonKey);
+      authMessage('Jika akaun wujud, pautan tetapan semula kata laluan akan dihantar.');
+    } catch (error) { authMessage(error.message, true); }
+  });
+  ['logoutBtn','pendingLogout'].forEach((id) => $(id)?.addEventListener('click', logout));
+  $('pendingRefresh')?.addEventListener('click', async () => { try { await loadProfile(); } catch (e) { notify(e.message); } });
+  $('copyLink')?.addEventListener('click', async () => {
+    const value = $('guestUrl')?.value;
+    if (!value) return;
+    try { await navigator.clipboard.writeText(value); notify('Pautan disalin.'); }
+    catch (_) { $('guestUrl')?.select(); notify('Sila salin pautan secara manual.'); }
+  });
+  $('createLink')?.addEventListener('click', () => notify('Pautan pelanggan belum dibuka: fungsi token pelanggan perlu dipasang dan diuji sebelum pautan selamat boleh dikeluarkan.'));
+  ['submitApplication','downloadPdfReview','downloadPdfDone'].forEach((id) =>
+    $(id)?.addEventListener('click', () => notify('Penghantaran dan PDF akhir belum diaktifkan. Jangan hantar data pelanggan sehingga pemetaan PDF dan aliran pelanggan diluluskan.'))
+  );
+  $('langBtn')?.addEventListener('click', () => notify('Antara muka asal dikekalkan. Terjemahan penuh BM/EN belum diaktifkan.'));
+  $('downloadTemplate')?.addEventListener('click', () => {
+    const map = { PI:'PI-Security-Guards-02-2025.pdf', PL:'Public-Liability-02-2025.pdf', GPA:'Biz-PA-Proposal-12-2025.pdf' };
+    const type = $('linkForm')?.value || 'PI';
+    const a = document.createElement('a'); a.href = './templates/' + map[type]; a.download = map[type]; a.click();
+  });
+
+  const start = async () => {
+    if (!validConfig) {
+      const note = document.createElement('div');
+      note.setAttribute('role','status');
+      note.className = 'config-warning';
+      note.textContent = 'Mod konfigurasi diperlukan — masukkan Supabase URL dan public anon/publishable key dalam config.js. Fungsi backend belum tersedia sehingga pendaftaran dan permohonan tidak boleh digunakan.';
+      $('main')?.prepend(note);
+      showOnly('authView');
+      return;
+    }
+    consumeOAuthCallback();
+    session = readSession();
+    try {
+      if (session?.access_token) {
+        await restoreOAuthUser();
+        const user = await api('/auth/v1/user', {}, session.access_token);
+        session.user = user; saveSession(session);
+        await loadProfile();
+      } else showOnly('authView');
+    } catch (error) {
+      saveSession(null); showOnly('authView');
+      authMessage('Sesi tamat atau tidak sah. Sila log masuk semula. ' + error.message, true);
+    }
+  };
+  setMode('login');
+  start();
 })();
