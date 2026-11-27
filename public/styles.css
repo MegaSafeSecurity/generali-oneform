@@ -196,3 +196,7 @@ body[data-mode="app"] .card-head h2{font-size:26px}
 .done-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:18px}
 .agent-row{display:grid;grid-template-columns:1.4fr 1.2fr auto auto;gap:8px;align-items:center;font-size:13px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-bottom:8px}
 @media(max-width:560px){.agent-row{grid-template-columns:1fr 1fr}}
+
+.support-upload{margin-top:16px}.support-upload .file-drop{margin-top:12px}.support-upload .hint{margin-top:9px;overflow-wrap:anywhere}
+
+.mail-state{font-size:10px;color:#657080}.mail-sent{color:#16834b}.mail-failed{color:#b42318}.mail-sending{color:#9a6700}
