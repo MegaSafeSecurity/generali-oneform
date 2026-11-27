@@ -180,6 +180,9 @@ security definer
 set search_path = public
 as $$
 begin
+  if auth.role() = 'service_role' then
+    return new;
+  end if;
   if auth.uid() is null or new.agent_id <> auth.uid()
      or new.status <> 'draft'
      or new.email_status <> 'pending'
