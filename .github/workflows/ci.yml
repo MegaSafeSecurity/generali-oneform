@@ -1,0 +1,13 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }        # tiada "cache: npm" -> tidak perlukan lock file
+      - run: npm install
+      - run: npm run build
+        env: { CI_PLACEHOLDER: "1" }      # kunci sebenar hanya di Render
+      - run: npm run scan-secrets
