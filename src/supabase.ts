@@ -20,7 +20,10 @@ const b64u = (b: Uint8Array): string => btoa(String.fromCharCode(...b)).replace(
 async function http<T>(path: string, method: 'GET' | 'POST', body?: unknown, token?: string | null): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(BASE + path, { method, headers: { apikey: ANON, Authorization: `Bearer ${token || ANON}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    const headers: Record<string, string> = { apikey: ANON, 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    else if (!ANON.startsWith('sb_publishable_')) headers.Authorization = `Bearer ${ANON}`;
+    res = await fetch(BASE + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   } catch { throw new ApiError('network', 0); }
   const text = await res.text();
   let data: unknown = null; try { data = text ? JSON.parse(text) : null; } catch { /* bukan JSON */ }
@@ -83,7 +86,7 @@ export async function handleAuthRedirect(): Promise<'none' | 'ok' | 'error'> {
 /* ---------------- data ---------------- */
 export interface Profile { id: string; email: string; full_name: string; role: 'agent' | 'hq'; status: 'pending' | 'active' | 'suspended'; created_at: string }
 export type AppStatus = 'draft' | 'submitted' | 'revoked';
-export interface AppRow { id: string; reference_no: string; form_type: FormType; status: AppStatus; customer_email: string | null; created_at: string; submitted_at: string | null; expires_at: string; agent_id: string; profiles?: { full_name: string; email: string } | null }
+export interface AppRow { id: string; reference_no: string; form_type: FormType; status: AppStatus; customer_email: string | null; created_at: string; submitted_at: string | null; expires_at: string; agent_id: string; hq_email_status?: 'pending' | 'sending' | 'sent' | 'failed'; profiles?: { full_name: string; email: string } | null }
 export interface AppFull extends AppRow { answers: Record<string, unknown>; members: Record<string, string>[]; signature: string | null; stamp: string | null }
 export interface CustomerLink { form_type: FormType; reference_no: string; status: AppStatus; expires_at: string; answers: Record<string, unknown>; members: Record<string, string>[]; step: number }
 
@@ -98,7 +101,7 @@ export async function getProfile(): Promise<Profile | null> {
   if (!UUID.test(sub)) return null;
   return (await rest<Profile[]>(`profiles?id=eq.${sub}&select=*`))[0] ?? null;
 }
-const LIST = 'applications?select=id,reference_no,form_type,status,customer_email,created_at,submitted_at,expires_at,agent_id,profiles(full_name,email)&order=created_at.desc&limit=300';
+const LIST = 'applications?select=id,reference_no,form_type,status,customer_email,created_at,submitted_at,expires_at,agent_id,hq_email_status,profiles(full_name,email)&order=created_at.desc&limit=300';
 export const listApplications = (): Promise<AppRow[]> => rest<AppRow[]>(LIST);
 export async function getApplication(id: string): Promise<AppFull | null> { if (!UUID.test(id)) return null; return (await rest<AppFull[]>(`applications?id=eq.${id}&select=*`))[0] ?? null; }
 export const listAgents = (): Promise<Profile[]> => rest<Profile[]>('profiles?role=eq.agent&select=*&order=created_at.desc');
@@ -110,3 +113,19 @@ export const setAgentStatus = (id: string, status: 'active' | 'suspended'): Prom
 export const customerGet = (token: string): Promise<CustomerLink> => rpcAnon('customer_get', { p_token: token });
 export const customerSaveDraft = (token: string, answers: unknown, members: unknown, step: number): Promise<boolean> => rpcAnon('customer_save_draft', { p_token: token, p_answers: answers, p_members: members, p_step: step });
 export const customerSubmit = (token: string, answers: unknown, members: unknown, signature: string, stamp: string | null): Promise<{ reference_no: string }> => rpcAnon('customer_submit', { p_token: token, p_answers: answers, p_members: members, p_signature: signature, p_stamp: stamp });
+
+
+/* Hantar PDF + dokumen sokongan melalui Edge Function. Kunci Gmail kekal di server. */
+export interface HqAttachment { name: string; type: string; data: string }
+export async function sendHqEmail(token: string, referenceNo: string, pdf: string, attachments: HqAttachment[]): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(BASE + '/functions/v1/send-hq-email', {
+      method: 'POST',
+      headers: { apikey: ANON, ...(ANON.startsWith('sb_publishable_') ? {} : { Authorization: `Bearer ${ANON}` }), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, reference_no: referenceNo, pdf, attachments }),
+    });
+  } catch { throw new ApiError('network', 0); }
+  const data = await res.json().catch(() => ({})) as { error?: string };
+  if (!res.ok) throw new ApiError(data.error || `email_${res.status}`, res.status);
+}
