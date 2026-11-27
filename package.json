@@ -1,20 +1,16 @@
 {
   "name": "generali-oneform-agent-portal",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Generali OneForm agent portal: agent login, secure customer links, Supabase storage",
+  "description": "Generali OneForm agent portal - aplikasi web statik (TypeScript, pdf-lib) untuk Render Static Site dan GitHub Pages",
+  "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
-    "check": "node --check server.js && node --check public/app.js && node --check public/liquid-nav.js && node --check public/sw.js && node --check src/store/common.js && node --check src/store/memory.js && node --check src/store/supabase.js && node --check src/store/index.js && node --check src/services/gmail.js && node --check src/services/submissions.js",
-    "test": "node scripts/smoke-test.js",
-    "security": "node scripts/security-check.js && node scripts/db-policy-check.js && node scripts/supabase-store-test.js",
-    "verify": "npm run check && npm test && npm run security"
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && node build.mjs",
+    "preview": "npx --yes serve dist -l 3000",
+    "hash-password": "node scripts/hash-password.mjs"
   },
-  "engines": {
-    "node": ">=20"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.57.0"
-  }
+  "engines": { "node": ">=20" },
+  "dependencies": { "pdf-lib": "^1.17.1" },
+  "devDependencies": { "esbuild": "^0.25.0", "typescript": "^5.6.0" }
 }
