@@ -112,7 +112,7 @@ function renderDash(): void {
     return;
   }
   const rows = S.apps.filter((a) => !S.filter || a.form_type === S.filter);
-  list.innerHTML = rows.length ? rows.map((a) => `<div class="app-row"><b>${esc(a.reference_no)}</b><span>${esc(a.form_type)}</span><span class="pill st-${esc(a.status)}">${esc(tk('st_' + a.status))}</span><small>${esc(a.created_at.slice(0, 10))}${hq && a.profiles ? ' · ' + esc(a.profiles.full_name || a.profiles.email) : ''}</small><span class="row-actions">${a.status === 'submitted' ? `<button class="row-btn" data-act="pdf" data-id="${esc(a.id)}">PDF</button>` : ''}${a.status === 'draft' ? `<button class="row-btn neutral" data-act="revoke" data-id="${esc(a.id)}">${t('revoke')}</button>` : ''}</span></div>`).join('') : `<p class="hint">${t('noApps')}</p>`;
+  list.innerHTML = rows.length ? rows.map((a) => `<div class="app-row"><b>${esc(a.reference_no)}</b><span>${esc(a.form_type)}</span><span class="pill st-${esc(a.status)}">${esc(tk('st_' + a.status))}</span>${a.status === 'submitted' ? `<small class="mail-state mail-${esc(a.hq_email_status || 'pending')}">E-mel HQ: ${esc(a.hq_email_status || 'pending')}</small>` : ''}<small>${esc(a.created_at.slice(0, 10))}${hq && a.profiles ? ' · ' + esc(a.profiles.full_name || a.profiles.email) : ''}</small><span class="row-actions">${a.status === 'submitted' ? `<button class="row-btn" data-act="pdf" data-id="${esc(a.id)}">PDF</button>` : ''}${a.status === 'draft' ? `<button class="row-btn neutral" data-act="revoke" data-id="${esc(a.id)}">${t('revoke')}</button>` : ''}</span></div>`).join('') : `<p class="hint">${t('noApps')}</p>`;
 }
 async function listAction(e: Event): Promise<void> {
   const b = (e.target as HTMLElement).closest<HTMLElement>('[data-act]'); const id = b?.dataset.id, act = b?.dataset.act; if (!b || !id || S.busy) return;
@@ -175,10 +175,23 @@ function review(): void {
   if (miss) { F.step = miss.step; renderStep(F); toast(`${t('errMissing')} ${miss.label}`); requestAnimationFrame(() => $<HTMLFormElement>('#dynamicForm').reportValidity()); return; }
   $('#reviewSummary').innerHTML = reviewHtml(F); show('#reviewView');
 }
-async function makePdf(form: FormType, ref: string, answers: Record<string, unknown>, members: Record<string, string>[], sig: string | null, stamp: string | null): Promise<void> {
+async function makePdfBytes(form: FormType, ref: string, answers: Record<string, unknown>, members: Record<string, string>[], sig: string | null, stamp: string | null): Promise<Uint8Array> {
   const sections = STEPS[form].map((s) => ({ title: s.title, rows: s.fields.map((f): [string, string] => [f[1], displayValue(answers[f[0]])]) }));
   const rows = form === 'GPA' ? members.filter((m) => Object.values(m).some(Boolean)).map((m) => MEMBER_KEYS.map((k) => m[k] || '-').join(' | ')) : [];
-  try { downloadBytes(await buildPdf({ title: FORM_NAMES[form].join(' - '), reference: ref, sections, members: rows, signature: sig, stamp }), `${ref}-${form}.pdf`); } catch { toast(t('pdfFail')); }
+  return buildPdf({ title: FORM_NAMES[form].join(' - '), reference: ref, sections, members: rows, signature: sig, stamp });
+}
+async function makePdf(form: FormType, ref: string, answers: Record<string, unknown>, members: Record<string, string>[], sig: string | null, stamp: string | null): Promise<void> {
+  try { downloadBytes(await makePdfBytes(form, ref, answers, members, sig, stamp), `${ref}-${form}.pdf`); } catch { toast(t('pdfFail')); }
+}
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''; const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  return btoa(binary);
+}
+const allowedSupportTypes = new Set(['application/pdf','image/jpeg','image/png','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+function updateSupportList(): void {
+  const files = Array.from($<HTMLInputElement>('#supportFiles').files ?? []);
+  $('#supportFileList').textContent = files.length ? files.map((f) => `${f.name} (${(f.size / 1048576).toFixed(2)} MB)`).join(' · ') : 'Tiada fail dipilih.';
 }
 async function submitApplication(): Promise<void> {
   if (S.busy || !S.token) return;
@@ -187,9 +200,23 @@ async function submitApplication(): Promise<void> {
   S.busy = true; $<HTMLButtonElement>('#submitApplication').disabled = true;
   try {
     collect(F); F.signature = await normalizeImage(F.signature); if (F.stamp) F.stamp = await normalizeImage(F.stamp);
+    const supportFiles = Array.from($<HTMLInputElement>('#supportFiles').files ?? []);
+    if (supportFiles.length > 8 || supportFiles.some((f) => f.size > 8 * 1024 * 1024 || !allowedSupportTypes.has(f.type)) || supportFiles.reduce((n, f) => n + f.size, 0) > 18 * 1024 * 1024) {
+      toast('Dokumen sokongan tidak sah: maksimum 8 fail, 8MB setiap fail dan 18MB jumlah. Gunakan PDF, JPG, PNG, DOC, DOCX, XLS atau XLSX.');
+      return;
+    }
     const r = await api.customerSubmit(S.token, F.answers, F.members, F.signature, F.stamp);
     if (S.link) S.link.status = 'submitted';
-    $('#referenceNo').textContent = r.reference_no; $('#downloadPdfDone').classList.remove('hidden'); show('#doneView');
+    $('#referenceNo').textContent = r.reference_no; $('#downloadPdfDone').classList.remove('hidden');
+    try {
+      const pdf = await makePdfBytes(F.form!, r.reference_no, F.answers, F.members, F.signature, F.stamp);
+      const attachments = await Promise.all(supportFiles.map(async (file) => ({ name: file.name, type: file.type, data: bytesToBase64(new Uint8Array(await file.arrayBuffer())) })));
+      await api.sendHqEmail(S.token, r.reference_no, bytesToBase64(pdf), attachments);
+      toast('Permohonan dan e-mel kepada HQ berjaya dihantar.');
+    } catch {
+      toast('Permohonan telah diterima, tetapi e-mel HQ belum berjaya dihantar. Sila maklumkan kepada ejen/HQ.');
+    }
+    show('#doneView');
   } catch (e) { toast(errText(e)); } finally { S.busy = false; $<HTMLButtonElement>('#submitApplication').disabled = false; }
 }
 const downloadPdf = (): void => { collect(F); if (F.form && S.link) void makePdf(F.form, S.link.reference_no, F.answers, F.members, F.signature, F.stamp); };
@@ -228,6 +255,7 @@ function wire(): void {
   $('#nextStep').onclick = next; $('#backForm').onclick = () => show('#formView');
   $('#dynamicForm').addEventListener('input', () => scheduleSave());
   $('#submitApplication').onclick = () => void submitApplication();
+  $('#supportFiles').addEventListener('change', updateSupportList);
   $('#downloadPdfReview').onclick = downloadPdf; $('#downloadPdfDone').onclick = downloadPdf;
   clearSig = setupSignature(F, () => toast(t('errImage')));
   if (LN) nav = LN.mount($('#liquidNav'), { tone: 'light', ariaLabel: 'Main', onChange: onNav, items: navLabels().map((label, i) => ({ label, icon: LN.ICONS[['home', 'shield', 'globe', 'badge'][i] ?? 'home'], fx: ['glow', 'drop', 'spin', 'wave'][i] })) });
