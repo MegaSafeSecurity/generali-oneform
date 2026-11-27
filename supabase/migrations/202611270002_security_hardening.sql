@@ -34,7 +34,7 @@ security definer
 set search_path = public
 as $$
 begin
-  if public.is_hq_admin() then
+  if auth.role() = 'service_role' or public.is_hq_admin() then
     return new;
   end if;
   if auth.uid() is null or old.agent_id <> auth.uid() or old.status <> 'draft' then
