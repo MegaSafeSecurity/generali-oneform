@@ -1,4 +1,0 @@
-[functions.send-hq-email]
-# Endpoint validates the high-entropy customer form token against the DB.
-# Do not require a Supabase user JWT: customers complete forms without accounts.
-verify_jwt = false
