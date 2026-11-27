@@ -38,7 +38,7 @@
       ...options,
       headers: {
         apikey: cfg.supabaseAnonKey,
-        Authorization: 'Bearer ' + (token || session?.access_token || cfg.supabaseAnonKey),
+        ...((token || (!path.startsWith('/auth/v1/token') && !path.startsWith('/auth/v1/signup') && !path.startsWith('/auth/v1/recover') && session?.access_token)) ? { Authorization: 'Bearer ' + (token || session.access_token) } : {}),
         ...(options.body ? { 'Content-Type': 'application/json' } : {}),
         ...(options.headers || {})
       }
@@ -100,7 +100,7 @@
   const login = async (email, password) => {
     const data = await api('/auth/v1/token?grant_type=password', {
       method: 'POST', body: JSON.stringify({ email, password })
-    }, cfg.supabaseAnonKey);
+    });
     saveSession(data);
     await loadProfile();
   };
@@ -108,7 +108,7 @@
     const data = await api('/auth/v1/signup', {
       method: 'POST',
       body: JSON.stringify({ email, password, data: { full_name: name } })
-    }, cfg.supabaseAnonKey);
+    });
     if (data.access_token) {
       saveSession(data);
       await loadProfile();
@@ -157,16 +157,24 @@
     } catch (error) { authMessage(error.message, true); }
     finally { if (submit) submit.disabled = false; }
   });
-  $('googleBtn')?.addEventListener('click', () => {
+  $('googleBtn')?.addEventListener('click', async () => {
     if (!validConfig) return notify('Konfigurasi Supabase belum lengkap.');
+    if (!window.supabase?.createClient) return notify('Komponen Supabase Auth belum dimuatkan. Muat semula halaman.');
     const redirect = cfg.appBaseUrl || location.origin + location.pathname;
-    location.href = cfg.supabaseUrl.replace(/\/$/, '') + '/auth/v1/authorize?provider=google&redirect_to=' + encodeURIComponent(redirect);
+    const client = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, flowType: 'implicit' }
+    });
+    const { error } = await client.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: redirect }
+    });
+    if (error) notify('Google Sign-In gagal: ' + error.message);
   });
   $('forgotBtn')?.addEventListener('click', async () => {
     const email = $('authEmail')?.value.trim();
     if (!email) return authMessage('Masukkan e-mel anda dahulu.');
     try {
-      await api('/auth/v1/recover', { method:'POST', body:JSON.stringify({ email, gotrue_meta_security:{ captcha_token:null } }) }, cfg.supabaseAnonKey);
+      await api('/auth/v1/recover', { method:'POST', body:JSON.stringify({ email, gotrue_meta_security:{ captcha_token:null } }) });
       authMessage('Jika akaun wujud, pautan tetapan semula kata laluan akan dihantar.');
     } catch (error) { authMessage(error.message, true); }
   });
