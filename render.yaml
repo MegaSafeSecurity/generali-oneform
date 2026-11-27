@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: generali-oneform
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: .
