@@ -133,11 +133,11 @@ button[disabled]{opacity:.6;cursor:progress}
 .login-form{display:grid;gap:12px;margin-top:6px}
 .link-create+.field{margin-top:14px}
 .app-list{display:grid;gap:8px;margin-top:10px}
-.app-row{display:grid;grid-template-columns:1.6fr .5fr 1.2fr .8fr;gap:8px;align-items:center;font-size:13px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.app-row{display:grid;grid-template-columns:1.6fr .5fr 1.2fr .8fr auto;gap:8px;align-items:center;font-size:13px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
 .app-row b{font-weight:700;overflow-wrap:anywhere}.app-row small{color:#6a7482;text-align:right}
 .pill{display:inline-block;padding:3px 9px;border-radius:99px;background:#eef0f4;font-size:12px;font-weight:600;white-space:nowrap}
 .pill.st-draft{background:#fff3d6}.pill.st-submitted,.pill.st-approved_by_agent,.pill.st-email_sent{background:#dff3e6}.pill.st-needs_correction{background:#fde7e3}
-@media(max-width:560px){.app-row{grid-template-columns:1fr 1fr}.app-row small{text-align:left}}
+@media(max-width:560px){.app-row{grid-template-columns:1fr 1fr 1fr}.app-row small{text-align:left}}
 
 
 /* =====================================================================
@@ -171,3 +171,7 @@ body[data-mode="app"] .card-head h2{font-size:26px}
   body[data-mode="auth"] .selection-card,body[data-mode="app"] .selection-card{padding:22px}
 }
 @media(prefers-reduced-motion:reduce){body[data-mode="app"] .nav-dock{animation:none}}
+
+.record-tools{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}.file-btn{display:inline-flex;align-items:center;cursor:pointer}
+.row-pdf{border:0;background:var(--tint);color:var(--red);font:700 12px var(--sans);padding:6px 10px;border-radius:8px;cursor:pointer}.row-pdf:hover{background:#f6d9d2}
+.dl-btn{margin:16px 0 10px}.done-view .dl-btn{width:auto;margin:0 6px 0 0}
