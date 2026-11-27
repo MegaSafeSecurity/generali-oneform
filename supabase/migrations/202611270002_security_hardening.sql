@@ -155,3 +155,43 @@ using (
 );
 
 -- Deliberately no public read policy and no anonymous customer access to table rows.
+
+
+-- Restrict agent-created records to initial drafts. Submission is server-mediated.
+drop policy if exists "agent creates own application" on public.applications;
+create policy "agent creates own application"
+on public.applications for insert
+with check (
+  agent_id = auth.uid()
+  and status = 'draft'
+  and email_status = 'pending'
+  and pdf_storage_path is null
+  and submitted_at is null
+  and exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.is_active = true and p.role = 'agent'
+  )
+);
+
+create or replace function public.guard_application_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null or new.agent_id <> auth.uid()
+     or new.status <> 'draft'
+     or new.email_status <> 'pending'
+     or new.pdf_storage_path is not null
+     or new.submitted_at is not null then
+    raise exception 'application must be created as an owned draft';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists guard_application_insert_generali on public.applications;
+create trigger guard_application_insert_generali
+before insert on public.applications
+for each row execute function public.guard_application_insert();
