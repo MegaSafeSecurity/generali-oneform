@@ -1,7 +1,7 @@
 # Generali OneForm
 
 Portal permohonan **PI / PL / Biz PA (GPA)** untuk **Ejen**, **HQ** dan **Pelanggan**.
-Susunan: **GitHub** (kod) -> **Render** (Static Site) + **Supabase** (Auth, Postgres, RLS). Tiada pelayan backend.
+Susunan: **GitHub** (kod) -> **Render** (Static Site) + **Supabase** (Auth, Postgres, RLS, Edge Function Gmail). Rahsia OAuth dan service-role kekal di server.
 
 | Peranan | Cara masuk | Apa yang boleh dibuat |
 |---|---|---|
@@ -14,7 +14,7 @@ Bar menu **Utama / Biz PA / Public Liability / PI Security Guards** hanya muncul
 ```
 public/        index.html, styles.css, liquid-nav.js (efek nav), aset, template PDF asal
 src/           TypeScript strict: supabase.ts, form-engine.ts, pdf.ts, i18n.ts, main.ts
-supabase/      schema.sql (boleh dijalankan berulang), reset.sql (pilihan, memadam)
+supabase/      schema.sql, email-dispatch.sql, Edge Function send-hq-email, reset.sql (pilihan, memadam)
 scripts/       scan-secrets.mjs, clean-git-history.sh
 tests/         mock-supabase.mjs + e2e.py (ujian tempatan tanpa Supabase sebenar)
 render.yaml    Blueprint Render    .github/workflows/ci.yml   semakan build + imbasan rahsia
@@ -72,3 +72,42 @@ Ujian automatik tanpa Supabase sebenar: `node tests/mock-supabase.mjs` + build d
 - PDF ialah dokumen ringkasan kemas (jawapan + tandatangan + cop); jawapan **tidak** dipetakan ke koordinat template PDF asal (template asal kekal sebagai muat turun kosong).
 - Draf disimpan di Supabase (RPC), bukan dalam pelayar. Tandatangan/cop disimpan sebagai imej PNG (maksimum 800 KB selepas pemampatan).
 - Pautan pelanggan tamat 7 hari dan boleh dibatalkan oleh ejen/HQ; token disimpan sebagai hash SHA-256 sahaja, dan dipaparkan sekali semasa dicipta.
+
+## 6. Penghantaran automatik ke HQ melalui Gmail (ditambah dalam pakej ini)
+
+Apabila pelanggan menghantar borang, sistem akan:
+1. menyimpan permohonan sebagai `submitted` melalui RPC yang dilindungi token;
+2. menjana PDF ringkasan permohonan menggunakan logo Generali dalam aset projek;
+3. menghantar PDF itu dan dokumen sokongan sebagai lampiran berasingan melalui Gmail shared mailbox ke HQ;
+4. menanda status e-mel (`pending`, `sending`, `sent`, `failed`) untuk mengelakkan penghantaran berganda biasa.
+
+### A. Database
+Jalankan `supabase/email-dispatch.sql` dalam Supabase SQL Editor selepas `schema.sql`. Migration ini menambah status penghantaran e-mel dan kebenaran minimum untuk Edge Function menggunakan `service_role` di server sahaja.
+
+### B. Google OAuth untuk Gmail
+Dalam Google Cloud Console, gunakan OAuth client jenis Web application dan aktifkan Gmail API. OAuth scope yang diperlukan ialah `https://www.googleapis.com/auth/gmail.send`. Hasilkan refresh token untuk akaun shared mailbox (akses offline). Pastikan alamat shared mailbox ialah akaun Gmail yang diberi kebenaran menghantar, atau alamat send-as yang telah disahkan dalam Gmail.
+
+### C. Deploy Edge Function
+Pasang Supabase CLI, login dan link projek. Tetapkan rahsia terus ke Supabase (jangan letak dalam `.env` frontend atau Git):
+
+```sh
+supabase secrets set \
+  GOOGLE_CLIENT_ID="..." \
+  GOOGLE_CLIENT_SECRET="..." \
+  GOOGLE_REFRESH_TOKEN="..." \
+  GMAIL_SHARED_MAILBOX="shared-mailbox@gmail.com" \
+  HQ_EMAIL="alamat-hq-sebenar@example.com"
+
+supabase functions deploy send-hq-email
+```
+
+`SUPABASE_URL` dan `SUPABASE_SERVICE_ROLE_KEY` disediakan secara automatik dalam Supabase Edge Functions. Jangan salin `service_role` ke Render, browser atau fail ZIP.
+
+### D. Dokumen sokongan
+Pada halaman semakan pelanggan, boleh pilih sehingga 8 fail PDF/JPG/PNG/DOC/DOCX/XLS/XLSX; maksimum 8 MB setiap fail dan 18 MB jumlah. Fail dihantar sebagai lampiran berasingan dalam e-mel HQ dan tidak disimpan kekal dalam Storage oleh versi ini. PDF permohonan dijana berasingan dan dilampirkan sebagai fail utama.
+
+### E. Penting sebelum operasi sebenar
+- Isikan `HQ_EMAIL` dengan alamat sebenar HQ dan rahsia OAuth milik shared mailbox anda.
+- Uji penghantaran ke peti ujian dalaman dahulu. Gmail hanya boleh menghantar daripada mailbox OAuth atau alias send-as yang disahkan.
+- Jika penghantaran gagal selepas permohonan berjaya disimpan, pelanggan tetap menerima nombor rujukan; status e-mel ditanda `failed` dan perlu disemak oleh pentadbir.
+- PDF dalam versi ini ialah PDF ringkasan digital, bukan penulisan jawapan ke koordinat template PDF asal. Template asal kekal sebagai fail rujukan kosong.
