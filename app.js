@@ -38,7 +38,7 @@
       ...options,
       headers: {
         apikey: cfg.supabaseAnonKey,
-        ...((token || session?.access_token) ? { Authorization: 'Bearer ' + (token || session.access_token) } : {}),
+        ...((token || (!path.startsWith('/auth/v1/token') && !path.startsWith('/auth/v1/signup') && !path.startsWith('/auth/v1/recover') && session?.access_token)) ? { Authorization: 'Bearer ' + (token || session.access_token) } : {}),
         ...(options.body ? { 'Content-Type': 'application/json' } : {}),
         ...(options.headers || {})
       }
@@ -174,7 +174,7 @@
     const email = $('authEmail')?.value.trim();
     if (!email) return authMessage('Masukkan e-mel anda dahulu.');
     try {
-      await api('/auth/v1/recover', { method:'POST', body:JSON.stringify({ email, gotrue_meta_security:{ captcha_token:null } }) }, cfg.supabaseAnonKey);
+      await api('/auth/v1/recover', { method:'POST', body:JSON.stringify({ email, gotrue_meta_security:{ captcha_token:null } }) });
       authMessage('Jika akaun wujud, pautan tetapan semula kata laluan akan dihantar.');
     } catch (error) { authMessage(error.message, true); }
   });
