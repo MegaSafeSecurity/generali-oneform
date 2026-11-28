@@ -83,11 +83,18 @@
     }
     $('dashName').textContent = (profile.full_name || session.user.email || 'Pengguna') + ' · ' + (profile.role === 'hq_admin' ? 'HQ' : 'Agent');
     showOnly('dashView');
-    await loadApplications();
+    try {
+      await loadApplications();
+    } catch (error) {
+      // A dashboard list failure must not invalidate a valid Auth session.
+      const host = $('appList');
+      if (host) host.textContent = 'Log masuk berjaya, tetapi senarai permohonan belum dapat dimuatkan. Sila cuba muat semula.';
+      console.error('[Generali OneForm] application list failed:', error);
+    }
     $('hqTabs')?.classList.toggle('hidden', profile.role !== 'hq_admin');
   };
   const loadApplications = async () => {
-    const rows = await api('/rest/v1/applications?select=id,reference_no,form_type,status,customer_email,created_at&order=created_at.desc&limit=50');
+    const rows = await api('/rest/v1/applications?select=id,reference_no,form_type:insurance_type,status,customer_email,created_at&order=created_at.desc&limit=50');
     const host = $('appList');
     if (!host) return;
     if (!rows.length) { host.textContent = 'Belum ada permohonan.'; return; }
