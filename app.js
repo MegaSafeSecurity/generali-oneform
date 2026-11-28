@@ -111,16 +111,29 @@
     saveSession(data);
     await loadProfile();
   };
-  const signup = async (name, email, password) => {
-    const data = await api('/auth/v1/signup', {
-      method: 'POST',
-      body: JSON.stringify({ email, password, data: { full_name: name } })
+  const getSupabaseClient = () => {
+    if (!window.supabase?.createClient) throw new Error('Komponen Supabase Auth belum dimuatkan. Muat semula halaman.');
+    if (!validConfig) throw new Error('Konfigurasi Supabase belum lengkap.');
+    return window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, flowType: 'implicit' }
     });
-    if (data.access_token) {
-      saveSession(data);
+  };
+  const signup = async (name, email, password) => {
+    const client = getSupabaseClient();
+    const { data, error } = await client.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: name },
+        emailRedirectTo: cfg.appBaseUrl || (location.origin + location.pathname)
+      }
+    });
+    if (error) throw error;
+    if (data.session?.access_token) {
+      saveSession(data.session);
       await loadProfile();
     } else {
-      authMessage('Pendaftaran diterima. Sahkan alamat e-mel melalui pautan yang dihantar, kemudian log masuk. Akaun juga memerlukan kelulusan HQ.');
+      authMessage('Pendaftaran diterima. Sahkan alamat e-mel melalui pautan yang dihantar. Selepas pengesahan, log masuk semula. Akaun Agent masih memerlukan kelulusan HQ.');
     }
   };
   const logout = async () => {
@@ -166,11 +179,10 @@
   });
   $('googleBtn')?.addEventListener('click', async () => {
     if (!validConfig) return notify('Konfigurasi Supabase belum lengkap.');
-    if (!window.supabase?.createClient) return notify('Komponen Supabase Auth belum dimuatkan. Muat semula halaman.');
-    const redirect = cfg.appBaseUrl || location.origin + location.pathname;
-    const client = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, flowType: 'implicit' }
-    });
+    let client;
+    try { client = getSupabaseClient(); }
+    catch (error) { return notify(error.message); }
+    const redirect = cfg.appBaseUrl || (location.origin + location.pathname);
     const { error } = await client.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: redirect }
