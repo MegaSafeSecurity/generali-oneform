@@ -91,7 +91,7 @@
       showOnly('pendingView');
       return;
     }
-    $('dashName').textContent = (profile.full_name || session.user.email || 'Pengguna') + ' · ' + (profile.role === 'hq_admin' ? 'HQ' : 'Agent');
+    $('dashName').textContent = (profile.full_name || session.user.email || 'Pengguna') + ' · ' + (profile.role === 'admin' ? 'HQ' : 'Agent');
     showOnly('dashView');
     try {
       await loadApplications();
@@ -101,7 +101,7 @@
       if (host) host.textContent = 'Log masuk berjaya, tetapi senarai permohonan belum dapat dimuatkan. Sila cuba muat semula.';
       console.error('[Generali OneForm] application list failed:', error);
     }
-    $('hqTabs')?.classList.toggle('hidden', profile.role !== 'hq_admin');
+    $('hqTabs')?.classList.toggle('hidden', profile.role !== 'admin');
   };
   const loadApplications = async () => {
     const rows = await api('/rest/v1/applications?select=id,reference_no,form_type:insurance_type,status,customer_email,created_at&order=created_at.desc&limit=50');
