@@ -16,6 +16,7 @@
   let session = null;
   let profile = null;
   let authMode = 'login';
+  let supabaseClient = null;
 
   const notify = (text) => {
     if (toast) { toast.textContent = text; toast.classList.add('show'); }
@@ -50,6 +51,15 @@
       throw error;
     }
     return body;
+  };
+  const getSupabaseClient = () => {
+    if (!window.supabase?.createClient) throw new Error('Komponen Supabase Auth belum dimuatkan. Muat semula halaman.');
+    if (!supabaseClient) {
+      supabaseClient = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, flowType: 'implicit' }
+      });
+    }
+    return supabaseClient;
   };
   const saveSession = (value) => {
     session = value;
@@ -112,15 +122,21 @@
     await loadProfile();
   };
   const signup = async (name, email, password) => {
-    const data = await api('/auth/v1/signup', {
-      method: 'POST',
-      body: JSON.stringify({ email, password, data: { full_name: name } })
+    const client = getSupabaseClient();
+    const { data, error } = await client.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: name },
+        emailRedirectTo: cfg.appBaseUrl || (location.origin + location.pathname)
+      }
     });
-    if (data.access_token) {
-      saveSession(data);
+    if (error) throw error;
+    if (data.session?.access_token) {
+      saveSession(data.session);
       await loadProfile();
     } else {
-      authMessage('Pendaftaran diterima. Sahkan alamat e-mel melalui pautan yang dihantar, kemudian log masuk. Akaun juga memerlukan kelulusan HQ.');
+      authMessage('Pendaftaran diterima. Sahkan alamat e-mel melalui pautan yang dihantar. Selepas pengesahan, log masuk semula. Akaun ejen juga memerlukan kelulusan HQ.');
     }
   };
   const logout = async () => {
@@ -165,17 +181,17 @@
     finally { if (submit) submit.disabled = false; }
   });
   $('googleBtn')?.addEventListener('click', async () => {
-    if (!validConfig) return notify('Konfigurasi Supabase belum lengkap.');
-    if (!window.supabase?.createClient) return notify('Komponen Supabase Auth belum dimuatkan. Muat semula halaman.');
-    const redirect = cfg.appBaseUrl || location.origin + location.pathname;
-    const client = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
-      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, flowType: 'implicit' }
-    });
-    const { error } = await client.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: redirect }
-    });
-    if (error) notify('Google Sign-In gagal: ' + error.message);
+    if (!validConfig) return authMessage('Konfigurasi Supabase belum lengkap.', true);
+    try {
+      const client = getSupabaseClient();
+      const { error } = await client.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: cfg.appBaseUrl || (location.origin + location.pathname) }
+      });
+      if (error) throw error;
+    } catch (error) {
+      authMessage('Google Sign-In gagal: ' + error.message, true);
+    }
   });
   $('forgotBtn')?.addEventListener('click', async () => {
     const email = $('authEmail')?.value.trim();
