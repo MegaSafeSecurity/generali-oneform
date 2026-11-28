@@ -108,13 +108,15 @@
     $('hqTabs')?.classList.toggle('hidden', profile.role !== 'admin');
   };
   const loadApplications = async () => {
-    const rows = await api('/rest/v1/applications?select=id,reference_no,form_type:insurance_type,status,customer_email,created_at&order=created_at.desc&limit=50');
+    // Match the live production schema: insurance_type is the form column and
+    // application IDs are the only reference identifier currently provisioned.
+    const rows = await api('/rest/v1/applications?select=id,insurance_type,status,customer_email,created_at&order=created_at.desc&limit=50');
     const host = $('appList');
     if (!host) return;
     if (!rows.length) { host.textContent = 'Belum ada permohonan.'; return; }
     host.innerHTML = rows.map((row) =>
-      '<article class="app-row"><b>' + safeText(row.reference_no) + '</b>' +
-      '<span>' + safeText(row.form_type) + ' · ' + safeText(row.status) + '</span>' +
+      '<article class="app-row"><b>' + safeText(String(row.id || '').slice(0, 8).toUpperCase()) + '</b>' +
+      '<span>' + safeText(row.insurance_type) + ' · ' + safeText(row.status) + '</span>' +
       '<small>' + safeText(row.customer_email || 'Tiada emel pelanggan') + '</small></article>'
     ).join('');
   };
