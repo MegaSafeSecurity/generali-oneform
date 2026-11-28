@@ -55,20 +55,24 @@
   const getSupabaseClient = () => {
     if (!window.supabase?.createClient) throw new Error('Komponen Supabase Auth belum dimuatkan. Muat semula halaman.');
     if (!supabaseClient) {
+      // Let supabase-js own OAuth callback parsing, PKCE exchange, persistence and refresh.
+      // Do not manually parse access tokens from the URL or keep a second competing session.
       supabaseClient = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
-        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, flowType: 'implicit' }
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true,
+          flowType: 'pkce'
+        }
       });
     }
     return supabaseClient;
   };
   const saveSession = (value) => {
-    session = value;
-    if (value) sessionStorage.setItem(STORE, JSON.stringify(value));
-    else sessionStorage.removeItem(STORE);
-  };
-  const readSession = () => {
-    try { return JSON.parse(sessionStorage.getItem(STORE) || 'null'); }
-    catch { return null; }
+    session = value || null;
+    if (!value) {
+      try { sessionStorage.removeItem(STORE); } catch (_) {}
+    }
   };
   const safeText = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
@@ -115,10 +119,11 @@
     ).join('');
   };
   const login = async (email, password) => {
-    const data = await api('/auth/v1/token?grant_type=password', {
-      method: 'POST', body: JSON.stringify({ email, password })
-    });
-    saveSession(data);
+    const client = getSupabaseClient();
+    const { data, error } = await client.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    if (!data.session) throw new Error('Log masuk belum menghasilkan sesi. Sila cuba semula.');
+    saveSession(data.session);
     await loadProfile();
   };
   const signup = async (name, email, password) => {
@@ -140,27 +145,24 @@
     }
   };
   const logout = async () => {
-    try { if (session?.access_token) await api('/auth/v1/logout', { method: 'POST' }); } catch (_) {}
+    try {
+      const client = getSupabaseClient();
+      const { error } = await client.auth.signOut();
+      if (error) throw error;
+    } catch (error) {
+      console.warn('[Generali OneForm] sign-out:', error.message);
+    }
     saveSession(null); profile = null; showOnly('authView'); setMode('login');
   };
-  const consumeOAuthCallback = () => {
-    if (!location.hash || !location.hash.includes('access_token=')) return false;
-    const p = new URLSearchParams(location.hash.slice(1));
-    const access_token = p.get('access_token');
-    if (!access_token) return false;
-    saveSession({
-      access_token, refresh_token: p.get('refresh_token'),
-      token_type: p.get('token_type') || 'bearer',
-      expires_in: Number(p.get('expires_in') || 3600),
-      user: { id: p.get('user_id') }
-    });
-    history.replaceState(null, '', location.pathname + location.search);
+  const showCallbackError = () => {
+    const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const query = new URLSearchParams(location.search);
+    const description = params.get('error_description') || query.get('error_description');
+    const code = params.get('error_code') || query.get('error_code');
+    if (!description && !code) return false;
+    authMessage('Pengesahan Google tidak berjaya' + (code ? ' (' + code + ')' : '') + ': ' +
+      decodeURIComponent(String(description || 'Sila semak konfigurasi OAuth dan Redirect URLs.').replace(/\+/g, ' ')), true);
     return true;
-  };
-  const restoreOAuthUser = async () => {
-    if (!session?.access_token || session.user?.email) return;
-    const user = await api('/auth/v1/user', {}, session.access_token);
-    session.user = user; saveSession(session);
   };
 
   $('tabLogin')?.addEventListener('click', () => setMode('login'));
@@ -230,18 +232,27 @@
       showOnly('authView');
       return;
     }
-    consumeOAuthCallback();
-    session = readSession();
     try {
-      if (session?.access_token) {
-        await restoreOAuthUser();
-        const user = await api('/auth/v1/user', {}, session.access_token);
-        session.user = user; saveSession(session);
-        await loadProfile();
-      } else showOnly('authView');
+      if (showCallbackError()) return;
+      const client = getSupabaseClient();
+      // getSession waits for supabase-js URL callback detection / PKCE exchange and
+      // restores persisted sessions before the app decides which screen to show.
+      const { data, error } = await client.auth.getSession();
+      if (error) throw error;
+      session = data.session || null;
+      if (!session?.access_token) {
+        showOnly('authView');
+        return;
+      }
+      const { data: userData, error: userError } = await client.auth.getUser();
+      if (userError) throw userError;
+      session.user = userData.user;
+      saveSession(session);
+      await loadProfile();
     } catch (error) {
-      saveSession(null); showOnly('authView');
-      authMessage('Sesi tamat atau tidak sah. Sila log masuk semula. ' + error.message, true);
+      console.error('[Generali OneForm] authentication initialization failed:', error);
+      showOnly('authView');
+      authMessage('Sesi tidak dapat dipulihkan. ' + error.message + ' Sila cuba log masuk semula.', true);
     }
   };
   setMode('login');
