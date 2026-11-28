@@ -77,6 +77,9 @@
   const safeText = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
   })[c]);
+  // Live Generali schema uses `admin`; accept the earlier `hq_admin` value only
+  // for backward compatibility. Authorization remains enforced by Supabase RLS.
+  const isHqProfile = (value) => ['admin', 'hq_admin'].includes(String(value?.role || '').toLowerCase());
   const setMode = (mode) => {
     authMode = mode;
     $('tabLogin')?.setAttribute('aria-selected', String(mode === 'login'));
@@ -95,7 +98,7 @@
       showOnly('pendingView');
       return;
     }
-    $('dashName').textContent = (profile.full_name || session.user.email || 'Pengguna') + ' · ' + (profile.role === 'admin' ? 'HQ' : 'Agent');
+    $('dashName').textContent = (profile.full_name || session.user.email || 'Pengguna') + ' · ' + (isHqProfile(profile) ? 'HQ' : 'Agent');
     showOnly('dashView');
     try {
       await loadApplications();
@@ -105,7 +108,7 @@
       if (host) host.textContent = 'Log masuk berjaya, tetapi senarai permohonan belum dapat dimuatkan. Sila cuba muat semula.';
       console.error('[Generali OneForm] application list failed:', error);
     }
-    $('hqTabs')?.classList.toggle('hidden', profile.role !== 'admin');
+    $('hqTabs')?.classList.toggle('hidden', !isHqProfile(profile));
   };
   const loadApplications = async () => {
     // Match the live production schema: insurance_type is the form column and
@@ -163,7 +166,7 @@
     const code = params.get('error_code') || query.get('error_code');
     if (!description && !code) return false;
     authMessage('Pengesahan Google tidak berjaya' + (code ? ' (' + code + ')' : '') + ': ' +
-      decodeURIComponent(String(description || 'Sila semak konfigurasi OAuth dan Redirect URLs.').replace(/\+/g, ' ')), true);
+      String(description || 'Sila semak konfigurasi OAuth dan Redirect URLs.'), true);
     return true;
   };
 
@@ -194,14 +197,18 @@
       });
       if (error) throw error;
     } catch (error) {
-      authMessage('Google Sign-In gagal: ' + error.message, true);
+      authMessage('Google Sign-In belum berjaya: ' + error.message + ' Jika anda HQ, cuba log masuk menggunakan e-mel dan kata laluan akaun HQ yang telah diaktifkan.', true);
     }
   });
   $('forgotBtn')?.addEventListener('click', async () => {
     const email = $('authEmail')?.value.trim();
     if (!email) return authMessage('Masukkan e-mel anda dahulu.');
     try {
-      await api('/auth/v1/recover', { method:'POST', body:JSON.stringify({ email, gotrue_meta_security:{ captcha_token:null } }) });
+      const client = getSupabaseClient();
+      const { error } = await client.auth.resetPasswordForEmail(email, {
+        redirectTo: cfg.appBaseUrl || (location.origin + location.pathname)
+      });
+      if (error) throw error;
       authMessage('Jika akaun wujud, pautan tetapan semula kata laluan akan dihantar.');
     } catch (error) { authMessage(error.message, true); }
   });
